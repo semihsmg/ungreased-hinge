@@ -2,6 +2,28 @@ import Foundation
 
 let debug = CommandLine.arguments.contains("--debug")
 
+// Toggle behavior: if an instance is already running, stop it and exit.
+let pidFileURL = FileManager.default.temporaryDirectory
+    .appendingPathComponent("ungreased-hinge.pid")
+
+if let pidText = try? String(contentsOf: pidFileURL, encoding: .utf8),
+   let existingPID = Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)),
+   kill(existingPID, 0) == 0 {
+    kill(existingPID, SIGTERM)
+    try? FileManager.default.removeItem(at: pidFileURL)
+    print("ungreased-hinge: stopped running instance (pid \(existingPID))")
+    exit(0)
+}
+
+try? "\(getpid())".write(to: pidFileURL, atomically: true, encoding: .utf8)
+
+func handleTerminationSignal(_ signalNumber: Int32) {
+    try? FileManager.default.removeItem(at: pidFileURL)
+    exit(0)
+}
+signal(SIGTERM, handleTerminationSignal)
+signal(SIGINT, handleTerminationSignal)
+
 guard let sensor = LidAngleSensor() else {
     fputs("error: lid angle sensor not found (requires a MacBook with the hinge angle sensor)\n", stderr)
     exit(1)
