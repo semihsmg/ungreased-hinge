@@ -5,7 +5,7 @@ import AVFoundation
 /// from where the last squeak left off.
 final class CreakPlayer {
     /// Lid speed (deg/s) below which the lid counts as still.
-    private static let movementThreshold = 3.0
+    static let movementThreshold = 3.0
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -58,10 +58,15 @@ final class CreakPlayer {
         currentVolume += (targetVolume - currentVolume) * smoothing
         player.volume = currentVolume
 
+        // Pause the whole engine while silent so its render thread isn't
+        // burning CPU mixing silence; restarting takes only a few ms, hidden
+        // behind the attack ramp.
         if currentVolume > 0.01 {
-            if !player.isPlaying { player.play() }
-        } else if player.isPlaying {
-            player.pause()
+            if !engine.isRunning { try? engine.start() }
+            if engine.isRunning, !player.isPlaying { player.play() }
+        } else {
+            if player.isPlaying { player.pause() }
+            if engine.isRunning { engine.pause() }
         }
     }
 }
