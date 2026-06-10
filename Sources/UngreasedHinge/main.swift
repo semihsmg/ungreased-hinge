@@ -37,6 +37,16 @@ do {
     exit(1)
 }
 
+// Quiesce audio around sleep/wake: touching AVFoundation while the output
+// device is mid-teardown raises an uncatchable NSException (see CreakPlayer).
+let sleepWakeObserver = SleepWakeObserver()
+if let sleepWakeObserver {
+    sleepWakeObserver.onSleep = { player.suspend() }
+    sleepWakeObserver.onWake = { player.resume() }
+} else {
+    fputs("warning: could not register for sleep/wake notifications\n", stderr)
+}
+
 guard var lastAngle = sensor.angleDegrees() else {
     fputs("error: sensor found but angle read failed (raw report: \(sensor.rawReportHex()))\n", stderr)
     exit(1)

@@ -12,6 +12,7 @@ final class CreakPlayer {
     private let buffer: AVAudioPCMBuffer
     private var currentVolume: Float = 0
     private var needsRestart = false
+    private var suspended = false
 
     init() throws {
         guard let url = Bundle.module.url(forResource: "creak", withExtension: "wav") else {
@@ -46,11 +47,30 @@ final class CreakPlayer {
         player.scheduleBuffer(buffer, at: nil, options: .loops)
     }
 
+    /// While the system is sleeping or waking, CoreAudio tears down the output
+    /// device, and touching the player mid-transition makes AVFoundation raise
+    /// an NSException that Swift cannot catch (it crashed the app on two
+    /// sleep/wake cycles). So: hands off the engine entirely from the moment
+    /// sleep is announced until after wake.
+    func suspend() {
+        suspended = true
+        player.stop()
+        engine.stop()
+    }
+
+    func resume() {
+        suspended = false
+        // Rebuild lazily on the next movement; immediate restarts can still
+        // catch CoreAudio before the output device is back.
+        needsRestart = true
+    }
+
     // player.stop() discards the scheduled loop, and CoreAudio can refuse to
     // start for a few seconds right after wake — so a failure here must be
     // remembered and retried from update(), or the player stays silent with
     // nothing scheduled.
     private func restart() {
+        guard !suspended else { return }
         player.stop()
         do {
             try start()
@@ -61,6 +81,7 @@ final class CreakPlayer {
     }
 
     func update(velocityDegreesPerSecond: Double) {
+        guard !suspended else { return }
         let moving = abs(velocityDegreesPerSecond) > Self.movementThreshold
         // Short attack/release ramp so starting and stopping doesn't click.
         let targetVolume: Float = moving ? 1 : 0
