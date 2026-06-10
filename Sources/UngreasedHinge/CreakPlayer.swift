@@ -11,6 +11,7 @@ final class CreakPlayer {
     private let player = AVAudioPlayerNode()
     private let buffer: AVAudioPCMBuffer
     private var currentVolume: Float = 0
+    private var needsRestart = false
 
     init() throws {
         guard let url = Bundle.module.url(forResource: "creak", withExtension: "wav") else {
@@ -45,9 +46,18 @@ final class CreakPlayer {
         player.scheduleBuffer(buffer, at: nil, options: .loops)
     }
 
+    // player.stop() discards the scheduled loop, and CoreAudio can refuse to
+    // start for a few seconds right after wake — so a failure here must be
+    // remembered and retried from update(), or the player stays silent with
+    // nothing scheduled.
     private func restart() {
         player.stop()
-        try? start()
+        do {
+            try start()
+            needsRestart = false
+        } catch {
+            needsRestart = true
+        }
     }
 
     func update(velocityDegreesPerSecond: Double) {
@@ -62,6 +72,7 @@ final class CreakPlayer {
         // burning CPU mixing silence; restarting takes only a few ms, hidden
         // behind the attack ramp.
         if currentVolume > 0.01 {
+            if needsRestart { restart() }
             if !engine.isRunning { try? engine.start() }
             if engine.isRunning, !player.isPlaying { player.play() }
         } else {
